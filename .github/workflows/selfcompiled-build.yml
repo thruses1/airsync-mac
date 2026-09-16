@@ -1,0 +1,68 @@
+name: Build AirSync Self Compiled 4.0.1
+
+on:
+  push:
+    branches:
+      - build-selfcompiled-4.0.1
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout exact source branch
+        uses: actions/checkout@v4
+
+      - name: Show toolchain and verify Self Compiled flag
+        run: |
+          set -euxo pipefail
+          sw_vers
+          xcodebuild -version
+          test "$(git rev-parse HEAD^)" = "3f9d78d36e3f3f575fa517489d9269b0f7fcfd9c"
+          grep -F "SWIFT_ACTIVE_COMPILATION_CONDITIONS = SELF_COMPILED" airsync-mac/Configs/SelfCompiled.xcconfig
+          xcodebuild -project AirSync.xcodeproj -list
+
+      - name: Build Self Compiled app
+        run: |
+          set -euxo pipefail
+          rm -rf DerivedData dist
+          xcodebuild \
+            -project AirSync.xcodeproj \
+            -scheme "AirSync Self Compiled" \
+            -configuration "Self Compiled" \
+            -derivedDataPath "$PWD/DerivedData" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            DEVELOPMENT_TEAM="" \
+            clean build
+
+      - name: Locate and ad-hoc sign app
+        run: |
+          set -euxo pipefail
+          APP="$(find "$PWD/DerivedData/Build/Products" -maxdepth 3 -type d -name AirSync.app -print -quit)"
+          test -n "$APP"
+          echo "APP=$APP" >> "$GITHUB_ENV"
+          /usr/bin/codesign --force --deep --sign - "$APP"
+          /usr/bin/codesign --verify --deep --strict --verbose=2 "$APP"
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Contents/Info.plist"
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP/Contents/Info.plist"
+
+      - name: Package app
+        run: |
+          set -euxo pipefail
+          mkdir -p dist
+          /usr/bin/ditto -c -k --sequesterRsrc --keepParent "$APP" dist/AirSync-SelfCompiled-4.0.1.zip
+          shasum -a 256 dist/AirSync-SelfCompiled-4.0.1.zip | tee dist/SHA256SUMS.txt
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: AirSync-SelfCompiled-4.0.1
+          path: |
+            dist/AirSync-SelfCompiled-4.0.1.zip
+            dist/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 30
