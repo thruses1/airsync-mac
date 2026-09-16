@@ -16,14 +16,16 @@ jobs:
       - name: Checkout exact source branch
         uses: actions/checkout@v4
         with:
-          fetch-depth: 2
+          fetch-depth: 0
 
-      - name: Show toolchain and verify Self Compiled flag
+      - name: Show toolchain and verify exact 4.0.1 source
         run: |
           set -euxo pipefail
           sw_vers
           xcodebuild -version
-          test "$(git rev-parse HEAD^)" = "3f9d78d36e3f3f575fa517489d9269b0f7fcfd9c"
+          BASE=3f9d78d36e3f3f575fa517489d9269b0f7fcfd9c
+          git cat-file -e "$BASE^{commit}"
+          git diff --exit-code "$BASE" HEAD -- . ':(exclude).github/workflows/selfcompiled-build.yml'
           grep -F "SWIFT_ACTIVE_COMPILATION_CONDITIONS = SELF_COMPILED" airsync-mac/Configs/SelfCompiled.xcconfig
           xcodebuild -project AirSync.xcodeproj -list
 
