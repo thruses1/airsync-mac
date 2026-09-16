@@ -31,6 +31,13 @@ jobs:
           grep -F "SWIFT_ACTIVE_COMPILATION_CONDITIONS = SELF_COMPILED" airsync-mac/Configs/SelfCompiled.xcconfig
           xcodebuild -project AirSync.xcodeproj -list
 
+      - name: Install Metal Toolchain
+        shell: bash
+        run: |
+          set -euxo pipefail
+          xcodebuild -downloadComponent MetalToolchain
+          xcrun -f metal
+
       - name: Build Self Compiled app
         shell: bash
         run: |
