@@ -15,6 +15,8 @@ jobs:
     steps:
       - name: Checkout exact source branch
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
 
       - name: Show toolchain and verify Self Compiled flag
         run: |
