@@ -19,10 +19,12 @@ jobs:
           fetch-depth: 0
 
       - name: Show toolchain and verify exact 4.0.1 source
+        shell: bash
         run: |
           set -euxo pipefail
           sw_vers
           xcodebuild -version
+          ls -1d /Applications/Xcode*.app || true
           BASE=3f9d78d36e3f3f575fa517489d9269b0f7fcfd9c
           git cat-file -e "$BASE^{commit}"
           git diff --exit-code "$BASE" HEAD -- . ':(exclude).github/workflows/selfcompiled-build.yml'
@@ -30,9 +32,11 @@ jobs:
           xcodebuild -project AirSync.xcodeproj -list
 
       - name: Build Self Compiled app
+        shell: bash
         run: |
-          set -euxo pipefail
-          rm -rf DerivedData dist
+          set -uo pipefail
+          rm -rf DerivedData dist build.log
+          set +e
           xcodebuild \
             -project AirSync.xcodeproj \
             -scheme "AirSync Self Compiled" \
@@ -41,7 +45,23 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             DEVELOPMENT_TEAM="" \
-            clean build
+            -quiet \
+            clean build 2>&1 | tee "$PWD/build.log"
+          rc=${PIPESTATUS[0]}
+          set -e
+          echo "=== FIRST BUILD ERRORS ==="
+          grep -n -m 40 -E '(^|[[:space:]])(error:|fatal error:)|BUILD FAILED|Command .* failed' "$PWD/build.log" || true
+          echo "=== XCODEBUILD EXIT CODE: $rc ==="
+          exit "$rc"
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: AirSync-build-log
+          path: build.log
+          if-no-files-found: ignore
+          retention-days: 7
 
       - name: Locate and ad-hoc sign app
         run: |
