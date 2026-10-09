@@ -1,0 +1,100 @@
+name: Build AirSync Self Compiled 4.1.0
+
+on:
+  push:
+    branches:
+      - build-selfcompiled-4.1.0
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: xcode-27
+    steps:
+      - name: Checkout exact source branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify source and toolchain
+        shell: bash
+        run: |
+          set -euxo pipefail
+          sw_vers
+          xcodebuild -version
+          BASE=bdaaecbebbc8308faeebe164334e6c409b34aaa6
+          git cat-file -e "$BASE^{commit}"
+          git diff --exit-code "$BASE" HEAD -- . ':(exclude).github/workflows/selfcompiled-build-4.1.0.yml'
+          grep -F "SWIFT_ACTIVE_COMPILATION_CONDITIONS = SELF_COMPILED" airsync-mac/Configs/SelfCompiled.xcconfig
+          xcodebuild -project AirSync.xcodeproj -list
+
+      - name: Install Metal Toolchain
+        shell: bash
+        run: |
+          set -euxo pipefail
+          xcodebuild -downloadComponent MetalToolchain
+          xcrun -f metal
+
+      - name: Build Self Compiled app
+        shell: bash
+        run: |
+          set -uo pipefail
+          rm -rf DerivedData dist build.log
+          set +e
+          xcodebuild \
+            -project AirSync.xcodeproj \
+            -scheme "AirSync Self Compiled" \
+            -configuration "Self Compiled" \
+            -derivedDataPath "$PWD/DerivedData" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            DEVELOPMENT_TEAM="" \
+            -quiet \
+            clean build 2>&1 | tee "$PWD/build.log"
+          rc=${PIPESTATUS[0]}
+          set -e
+          echo "=== FIRST BUILD ERRORS ==="
+          grep -n -m 40 -E '(^|[[:space:]])(error:|fatal error:)|BUILD FAILED|Command .* failed' "$PWD/build.log" || true
+          echo "=== XCODEBUILD EXIT CODE: $rc ==="
+          exit "$rc"
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: AirSync-4.1.0-build-log
+          path: build.log
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Locate and ad-hoc sign app
+        shell: bash
+        run: |
+          set -euxo pipefail
+          APP="$(find "$PWD/DerivedData/Build/Products" -maxdepth 3 -type d -name AirSync.app -print -quit)"
+          test -n "$APP"
+          echo "APP=$APP" >> "$GITHUB_ENV"
+          /usr/bin/codesign --force --deep --sign - "$APP"
+          /usr/bin/codesign --verify --deep --strict --verbose=2 "$APP"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Contents/Info.plist")" = "4.1.0"
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP/Contents/Info.plist"
+
+      - name: Package app
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p dist
+          /usr/bin/ditto -c -k --sequesterRsrc --keepParent "$APP" dist/AirSync-SelfCompiled-4.1.0.zip
+          shasum -a 256 dist/AirSync-SelfCompiled-4.1.0.zip | tee dist/SHA256SUMS.txt
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: AirSync-SelfCompiled-4.1.0
+          path: |
+            dist/AirSync-SelfCompiled-4.1.0.zip
+            dist/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 30
